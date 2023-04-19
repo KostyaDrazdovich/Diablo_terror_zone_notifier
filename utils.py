@@ -10,6 +10,8 @@ user_settings_file = 'user_settings.json'
 def notification_status(user_favorites, chat_id, notifications_state):
     bot = telebot.TeleBot(token=bot_token)
     user_id = str(chat_id)
+    if user_id not in user_favorites:
+        user_favorites[user_id] = {}
     user_favorites[user_id][JsonFields.NOTIFICATIONS_ENABLED] = notifications_state
     with open(user_settings_file, 'w') as f:
         json.dump(user_favorites, f)
