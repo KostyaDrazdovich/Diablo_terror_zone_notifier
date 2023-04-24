@@ -10,8 +10,12 @@ def get_current_terror_zone():
     # https://d2runewizard.com/integration#authorization
     headers = {'D2R-Contact': 'just_sample@gmail.com', 'D2R-Platform': 'Telegram', 'D2R-Repo': 'https://github.com/'}
     response = requests.get(f"https://d2runewizard.com/api/terror-zone?token={d2rwizard_token}", headers=headers).json()
-    reported_zone_name = next(iter(response[JsonFields.TERROR_ZONE][JsonFields.REPORTED_ZONES]))
-    return reported_zone_name
+    reported_zones = response[JsonFields.TERROR_ZONE][JsonFields.REPORTED_ZONES]
+    if reported_zones:
+        reported_zone_name = next(iter(reported_zones))
+        return reported_zone_name['zone']
+    else:
+        return response[JsonFields.TERROR_ZONE]['zone']
 
 
 def send_message(bot, message, user_favorite_tz):
