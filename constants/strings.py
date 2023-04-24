@@ -48,6 +48,7 @@ class JsonFields:
     NOTIFICATIONS_ENABLED = "notifications_enabled"
     TERROR_ZONE = "terrorZone"
     REPORTED_ZONES = "reportedZones"
+    ZONE = "zone"
     ZONES = "zones"
 
 
