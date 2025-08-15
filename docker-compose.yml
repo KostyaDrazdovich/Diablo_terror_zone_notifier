@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-diablo_bot}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-diablo_bot}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Telegram / D2 API
+      BOT_TOKEN: ${BOT_TOKEN}
+      D2_API_TOKEN: ${D2_API_TOKEN}
+      D2_API_URL: ${D2_API_URL:-https://d2runewizard.com/api/terror-zone}
+      D2_API_CONTACT: ${D2_API_CONTACT:-}
+      D2_API_PLATFORM: ${D2_API_PLATFORM:-Telegram}
+      D2_API_REPO: ${D2_API_REPO:-}
+
+      # DB (используем явный DSN под asyncpg)
+      DB_DSN: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-diablo_bot}
+
+      # Runtime / Scheduling / Logs
+      NOTIFY_INTERVAL_SECONDS: ${NOTIFY_INTERVAL_SECONDS:-3600}
+      NOTIFY_ALIGN_MINUTE: ${NOTIFY_ALIGN_MINUTE:-2}
+      HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS:-10}
+      HTTP_RETRIES: ${HTTP_RETRIES:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-ru}
+      SUPPORTED_LANGUAGES: ${SUPPORTED_LANGUAGES:-ru}
+
+    depends_on:
+      db:
+        condition: service_healthy
+    # Если хочешь монтировать код на hot-reload в dev — раскомментируй:
+    # volumes:
+    #   - ./src:/app/src:ro
+
+volumes:
+  dbdata:
