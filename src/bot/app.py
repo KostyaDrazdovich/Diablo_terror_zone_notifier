@@ -70,9 +70,12 @@ async def stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def current(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     client: D2ApiClient = context.application.bot_data["d2_client"]
     try:
-        tz = await client.get_current_terror_zone()
-        code = code_by_name(tz.name)
-        text = f"Current zone: {name_by_code(code)}" if code else f"Current zone (from API): {tz.name}"
+        current_tz, next_tz = await client.get_current_and_next_zones()
+        code = code_by_name(current_tz.name)
+        current_name = name_by_code(code) if code else current_tz.name
+        next_code = code_by_name(next_tz.name)
+        next_name = name_by_code(next_code) if next_code else next_tz.name
+        text = f"Current zone: {current_name}\nNext zone: {next_name}"
         await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
     except (D2ApiError, D2ParseError) as e:
         log.warning("Failed to fetch current zone: %s", e)
@@ -136,23 +139,24 @@ async def check_and_notify(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     now = datetime.now(timezone.utc)
     bypass = now.minute <= 5
-    tz = None
+    zones = None
 
     if not bypass:
         cached = store.get("tz_cache")
         ts = store.get("tz_cache_ts")
         if cached is not None and ts is not None and (now - ts) <= timedelta(minutes=10):
-            tz = cached
+            zones = cached
 
     try:
-        if tz is None:
-            tz = await client.get_current_terror_zone()
-            store["tz_cache"] = tz
+        if zones is None:
+            zones = await client.get_current_and_next_zones()
+            store["tz_cache"] = zones
             store["tz_cache_ts"] = now
 
-        code = code_by_name(tz.name)
+        current_tz = zones[0]
+        code = code_by_name(current_tz.name)
         if not code:
-            logging.getLogger("bot.app").warning("Unknown terror zone from API: %r", tz.name)
+            logging.getLogger("bot.app").warning("Unknown terror zone from source: %r", current_tz.name)
             return
 
         async with store["session_factory"]() as session:

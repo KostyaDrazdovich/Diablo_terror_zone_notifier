@@ -148,9 +148,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if data == "menu:current":
         try:
-            tz = await _get_current_zone_cached(context)
-            code = code_by_name(tz.name)
-            text = f"Current terror zone: {name_by_code(code)}" if code else f"Current terror zone (from API): {tz.name}"
+            current_tz, next_tz = await _get_current_zones_cached(context)
+            code = code_by_name(current_tz.name)
+            current_name = name_by_code(code) if code else current_tz.name
+            next_code = code_by_name(next_tz.name)
+            next_name = name_by_code(next_code) if next_code else next_tz.name
+            text = f"Current terror zone: {current_name}\nNext terror zone: {next_name}"
         except (D2ApiError, D2ParseError) as e:
             log.warning("Failed to fetch current zone: %s", e)
             text = "Couldn't get the current terror zone. Please try again later."
@@ -405,7 +408,7 @@ def _extract_window_from_user(user) -> tuple[int, int, bool]:
     return int(start), int(end), enabled
 
 
-async def _get_current_zone_cached(context: ContextTypes.DEFAULT_TYPE):
+async def _get_current_zones_cached(context: ContextTypes.DEFAULT_TYPE):
     from datetime import datetime, timedelta, timezone
 
     store = context.application.bot_data
@@ -420,10 +423,10 @@ async def _get_current_zone_cached(context: ContextTypes.DEFAULT_TYPE):
         if cached is not None and ts is not None and (now - ts) <= timedelta(minutes=10):
             return cached
 
-    tz = await client.get_current_terror_zone()
-    store["tz_cache"] = tz
+    zones = await client.get_current_and_next_zones()
+    store["tz_cache"] = zones
     store["tz_cache_ts"] = now
-    return tz
+    return zones
 
 
 def register_handlers(app: Application) -> None:
