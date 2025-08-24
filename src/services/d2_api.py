@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-import httpx
+from playwright.async_api import (
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeoutError,
+    async_playwright,
+)
 
 from utils.config import Settings, get_settings
 
@@ -28,24 +32,20 @@ class D2ParseError(RuntimeError):
 
 
 class D2ApiClient:
-    def __init__(
-        self,
-        settings: Optional[Settings] = None,
-        *,
-        client: Optional[httpx.AsyncClient] = None,
-    ) -> None:
+    def __init__(self, settings: Optional[Settings] = None) -> None:
         self._settings = settings or get_settings()
-        self._own_client = client is None
-        self._client = client or httpx.AsyncClient(
-            timeout=self._settings.http_timeout_seconds,
-            headers={"User-Agent": "diablo-terror-bot/1.0 (+telegram)"},
-        )
+        self._playwright = None
+        self._browser = None
 
     # -------- lifecycle --------
 
     async def aclose(self) -> None:
-        if self._own_client:
-            await self._client.aclose()
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+        if self._playwright:
+            await self._playwright.stop()
+            self._playwright = None
 
     async def __aenter__(self) -> "D2ApiClient":
         return self
@@ -59,16 +59,25 @@ class D2ApiClient:
         """Fetch the current and upcoming terror zones."""
 
         url = self._settings.d2_api_url
+        await self._ensure_browser()
+        page = await self._browser.new_page()
+        timeout_ms = self._settings.http_timeout_seconds * 1000
         try:
-            resp = await self._client.get(url)
-            resp.raise_for_status()
-        except httpx.HTTPError as e:
-            raise D2ApiError(f"HTTP error contacting terror zone source: {e}") from e
+            await page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+            await page.wait_for_selector("#a2x", timeout=timeout_ms)
+            await page.wait_for_selector("#x2a", timeout=timeout_ms)
+            current_block = await page.inner_text("#a2x")
+            next_block = await page.inner_text("#x2a")
+        except PlaywrightTimeoutError as e:
+            raise D2ApiError(f"Timeout contacting terror zone source: {e}") from e
+        except PlaywrightError as e:
+            raise D2ApiError(f"Error contacting terror zone source: {e}") from e
+        finally:
+            await page.close()
 
-        html = resp.text
         try:
-            current_names = self._extract_names(html, "a2x")
-            next_names = self._extract_names(html, "x2a")
+            current_names = self._split_names(current_block)
+            next_names = self._split_names(next_block)
             current = TerrorZone(name=self._compose_name(current_names))
             nxt = TerrorZone(name=self._compose_name(next_names))
             return current, nxt
@@ -81,16 +90,14 @@ class D2ApiClient:
 
     # -------- internals --------
 
-    @staticmethod
-    def _extract_names(html: str, div_id: str) -> List[str]:
-        import re
+    async def _ensure_browser(self) -> None:
+        if self._browser is None:
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.launch(headless=True)
 
-        pattern = rf'<div id="{div_id}">(.*?)</div>'
-        match = re.search(pattern, html, flags=re.IGNORECASE | re.DOTALL)
-        if not match:
-            raise ValueError(f"div #{div_id} not found")
-        block = match.group(1)
-        return [p.strip() for p in block.split("<br>") if p.strip()]
+    @staticmethod
+    def _split_names(block: str) -> List[str]:
+        return [p.strip() for p in block.replace("\r", "").splitlines() if p.strip()]
 
     @staticmethod
     def _compose_name(parts: List[str]) -> str:
